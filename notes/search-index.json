@@ -1,0 +1,17 @@
+[
+  {
+    "title": "NTLM Relay",
+    "url": "notes/ntlm-relay.html",
+    "content": "ntlm relay attack active directory responder ntlmrelayx smb ldap authentication relay"
+  },
+  {
+    "title": "Kerberoasting",
+    "url": "notes/kerberoasting.html",
+    "content": "kerberos ticket attack service account hash cracking active directory"
+  },
+  {
+    "title": "Linux Privilege Escalation",
+    "url": "notes/linux-privesc.html",
+    "content": "linux privilege escalation sudo suid cron kernel exploit"
+  }
+]
